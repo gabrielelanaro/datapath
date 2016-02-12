@@ -1,5 +1,5 @@
 import numpy as np
-from dprocess.core import DataCache
+from datapath.core import DataCache
 from sklearn.cross_validation import train_test_split
 from sklearn.linear_model import LinearRegression
 
