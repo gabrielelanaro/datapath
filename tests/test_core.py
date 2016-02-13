@@ -29,10 +29,11 @@ def test_hello():
         
         return lr, lr.score(X_test, y_test)
     
-    dataset = dc.step(make_data_set).step(split)
+    dataset = dc.step(make_data_set).step(split).checkpoint()
+    
     lr, score = dc.record(linear_fit, dataset)
     
-    dataset2 = dc.step(make_data_set).step(square).step(split)
+    dataset2 = dc.step(make_data_set).step(square).step(split).checkpoint()
     lr, score = dc.record(linear_fit, dataset2)
     
     print dc.summary()

@@ -1,12 +1,15 @@
 import os
 import dask.threaded
 from dask.compatibility import apply
+import cPickle as pickle
+
 class DataCache:
     
-    def __init__(self, directory):
+    def __init__(self, directory='./dc'):
         if not os.path.exists(directory):
             os.mkdir(directory)
         
+        self.directory = directory
         self.graph = {}
         self.observed = []
 
@@ -40,6 +43,12 @@ class DataCache:
         
         return '\n'.join(lines)
 
+    def store(self, name, value):
+        return pickle.dump(value, open(os.path.join(self.directory, name), 'wb'))
+    
+    def load(self, name):
+        return pickle.load(open(os.path.join(self.directory, name), 'rb'))
+
 class Step:
     
     def __init__(self, dc, name, target, args, kwargs):
@@ -67,7 +76,15 @@ class Step:
         result = dask.threaded.get(self.dc.graph, self.name)
         return result
 
-
+    def checkpoint(self):
+        # We write stuff to disk
+        result = self.get()
+        self.dc.store(self.name + '.store', result)
+        
+        # We replace the calculation with the cached value
+        self.dc.graph[self.name] = (self.dc.load, self.name + '.store')
+        return self
+        
 def apply_with_kwargs(function, args, kwargs):
     return function(*args, **dict(kwargs))
     
