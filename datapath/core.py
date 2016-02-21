@@ -78,9 +78,8 @@ class Step:
         self.args = args
         self.kwargs = kwargs
 
-        # Create a new entry in the graph
-        self.recompute()
         self.dc.step_graph[self.name] = self
+        self.recompute()
 
     def recompute(self):
         self.dc.graph[self.name] = (apply_with_kwargs, self.target,
@@ -101,9 +100,9 @@ class Step:
         result = dask.threaded.get(self.dc.graph, self.name)
         return result
 
-    def checkpoint(self):
+    def checkpoint(self, recompute=False):
         hash_ = self.hash()
-        if hash_ != self.dc.load_hash(self.name):
+        if hash_ != self.dc.load_hash(self.name) or recompute:
             # If hash has changed, we write stuff to disk
             self.recompute()
             result = self.get()
@@ -119,7 +118,8 @@ class Step:
 
     def hash(self):
         uniquity = (self.name, self.args, self.kwargs,
-                    marshal.dumps(self.target.__code__))
+                    self.target.__code__.co_code,
+                    self.target.__code__.co_consts)
 
         if '->' in self.name:
             previous_hash = self.previous().hash()

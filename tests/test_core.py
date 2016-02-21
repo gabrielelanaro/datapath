@@ -103,3 +103,9 @@ def test_cache_func_changed(datacache):
     step_mod_x = step_mod.get()[0]
     assert not np.array_equal(step_x, step_mod_x)
     make_data_set = make_data_set_old
+
+
+def test_new_datacache(datacache):
+    datacache.step(make_data_set).square().checkpoint()
+    datacache_new = DataCache('dc')
+    datacache_new.step(make_data_set).square().checkpoint()
