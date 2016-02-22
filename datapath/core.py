@@ -128,6 +128,8 @@ class Step:
 
         return previous_hash + joblib.hash(uniquity)
 
+    def record(self):
+        return self.dc.record(self.target, *self.args, **self.kwargs)
 
 def apply_with_kwargs(function, args, kwargs):
     return function(*args, **dict(kwargs))

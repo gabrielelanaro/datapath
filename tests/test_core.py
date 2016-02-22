@@ -106,6 +106,20 @@ def test_cache_func_changed(datacache):
 
 
 def test_new_datacache(datacache):
-    datacache.step(make_data_set).square().checkpoint()
+    datacache.step(make_data_set).step(square).checkpoint()
     datacache_new = DataCache('dc')
-    datacache_new.step(make_data_set).square().checkpoint()
+    datacache_new.step(make_data_set).step(square).checkpoint()
+
+
+def make_data_set_p(size):
+    return np.arange(size)
+
+def power(step, power):
+    return step ** power
+
+def test_parameterized(datacache):
+    val = datacache.step(make_data_set_p, 10).step(power, 3).record()
+    assert np.array_equal(val, np.arange(10) ** 3)
+
+    val = datacache.step(make_data_set_p, 20).step(power, 3).record()
+    assert np.array_equal(val, np.arange(10) ** 3)
