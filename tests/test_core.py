@@ -1,7 +1,7 @@
 import numpy as np
 import os
 
-from datapath.core import DataCache, make_path
+from trails.core import DataCache, make_path
 from sklearn.cross_validation import train_test_split
 from sklearn.linear_model import LinearRegression
 
@@ -40,6 +40,7 @@ def datacache(request):
     def teardown():
         py.path.local('./dc').remove()
     request.addfinalizer(teardown)
+
     return dc
 
 
@@ -55,6 +56,7 @@ def test_example1(datacache):
 
     # We need to check if hash was created
     assert os.path.exists('./dc/' + make_path(dataset.trail) + '.hash')
+
 
 def test_hash_changed(datacache):
     global make_data_set
@@ -110,6 +112,7 @@ def test_new_datacache(datacache):
 
 def make_data_set_p(size):
     return np.arange(size)
+
 
 def power(step, power):
     return step ** power
