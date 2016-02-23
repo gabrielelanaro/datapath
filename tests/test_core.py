@@ -118,6 +118,13 @@ def power(step, power):
     return step ** power
 
 
+def test_unpacking(datacache):
+    X, y = datacache.step(make_data_set) # Unfortunately he has to run
+    X_train, X_test, y_train, y_test = datacache.step(train_test_split, X, y)
+
+    print(X_train.get())
+
+
 # def test_parameterized(datacache):
 #     val = datacache.step(make_data_set_p, 10).step(power, 3).record()
 #     assert np.array_equal(val, np.arange(10) ** 3)

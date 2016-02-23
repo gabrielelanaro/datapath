@@ -1,16 +1,26 @@
 import os
 import dask.threaded
 import dis
-import dill
 import joblib
-import marshal
+import types
+import shelve
 
 from collections import namedtuple
+from operator import getitem
 from dask.compatibility import apply
 from .utils import hashabledict
 
 
 Call = namedtuple('Call', ['func', 'args', 'kwargs'])
+
+
+def resolve_args(args):
+    return tuple(a if not isinstance(a, Step) else a.trail for a in args)
+
+
+def resolve_kwargs(kwargs):
+    return {k: v if not isinstance(v, Step) else v.trail for k, v in kwargs.items()}
+
 
 class DataCache:
 
@@ -25,6 +35,9 @@ class DataCache:
 
     def step(self, target, *args, **kwargs):
         name = target.__name__
+        args = resolve_args(args)
+        kwargs = resolve_kwargs(kwargs)
+
         trail = Call(name, args, hashabledict(kwargs))
         return Step(self, trail, target, args, kwargs)
 
@@ -69,8 +82,28 @@ class DataCache:
         with open(hash_file, 'w') as fd:
             fd.write(hash)
 
+    def load_meta(self, step, meta):
+        '''Load some metadata for a certain step'''
+        meta_file = os.path.join(
+            self.directory, make_path(step.trail) + '.shelve')
+
+        shv = shelve.open(meta_file)
+        if meta not in shv:
+            return None
+        else:
+            return shv[meta]
+
+    def store_meta(self, step, meta, value):
+        '''Store metadata for a certain step'''
+        meta_file = os.path.join(
+            self.directory, make_path(step.trail) + '.shelve')
+        shv = shelve.open(meta_file)
+        shv[meta] = value
+
+
 def make_path(name_tuple):
     return joblib.hash(name_tuple)
+
 
 class Step:
 
@@ -84,9 +117,11 @@ class Step:
         self.dc.step_graph[self.trail] = self
         self.recompute()
 
+        self._counter = 0
+
     def recompute(self):
         self.dc.graph[self.trail] = (apply_with_kwargs, self.target,
-                                    list(self.args), list(self.kwargs))
+                                     list(self.args), list(self.kwargs))
 
     def step(self, target, *args, **kwargs):
         name = target.__name__
@@ -102,6 +137,9 @@ class Step:
     def get(self):
         result = dask.threaded.get(self.dc.graph, self.trail)
         return result
+
+    def changed(self):
+        return self.hash() != self.dc.load_hash(self.trail)
 
     def checkpoint(self, recompute=False):
         hash_ = self.hash()
@@ -133,9 +171,17 @@ class Step:
                 or any(isinstance(v, Call) for v in self.trail.kwargs.values()))
 
     def hash(self):
+
+        if isinstance(self.target, types.BuiltinFunctionType):
+            bytecode = None
+            consts = None
+        else:
+            bytecode = self.target.__code__.co_code
+            consts = self.target.__code__.co_consts
+
         uniquity = (self.trail, self.args, self.kwargs,
-                    self.target.__code__.co_code,
-                    self.target.__code__.co_consts)
+                    bytecode,
+                    consts)
 
         if self.has_deps():
             previous_hash = ''.join(p.hash() for p in self.previous())
@@ -144,6 +190,12 @@ class Step:
 
         return previous_hash + joblib.hash(uniquity)
 
+    def store_meta(self, meta, value):
+        self.dc.store_meta(self, meta, value)
+
+    def load_meta(self, meta):
+        return self.dc.load_meta(self, meta)
+
     def record(self):
         return self.dc.record(self.target, *self.args, **self.kwargs)
 
@@ -151,11 +203,12 @@ class Step:
         '''Pretty representation'''
         path = []
 
-
         func_name = self.trail.func
 
-        args = ', '.join('*' if isinstance(a, Call) else str(a) for a in self.trail.args)
-        kwargs = ','.join(k + '=' + str(v) for k, v in self.trail.kwargs.items())
+        args = ', '.join('*' if isinstance(a, Call) else str(a)
+                         for a in self.trail.args)
+        kwargs = ','.join(k + '=' + str(v)
+                          for k, v in self.trail.kwargs.items())
 
         if args == '' and kwargs == '':
             tpl = "{}{}{}"
@@ -171,6 +224,23 @@ class Step:
             path.append(p.prepr())
 
         return '<-'.join(path)
+
+    def length(self):
+
+        if self.load_meta('length') is None or self.changed():
+            length = len(self.get())
+            self.store_meta('length', length)
+        else:
+            length = self.load_meta('length')
+
+        return length
+
+    def __getitem__(self, item):
+        if item >= self.length():
+            raise IndexError()
+        else:
+            return self.step(getitem, item)
+
 
 def apply_with_kwargs(function, args, kwargs):
     return function(*args, **dict(kwargs))
