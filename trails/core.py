@@ -21,7 +21,8 @@ def resolve_args(args):
 def resolve_kwargs(kwargs):
     return {k: v if not isinstance(v, Step) else v.trail for k, v in kwargs.items()}
 
-
+def fmt_call(call):
+    
 class DataCache:
 
     def __init__(self, directory='./dc'):
@@ -31,7 +32,6 @@ class DataCache:
         self.directory = directory
         self.graph = {}
         self.step_graph = {}
-        self.observed = []
 
     def step(self, target, *args, **kwargs):
         name = target.__name__
@@ -41,44 +41,40 @@ class DataCache:
         trail = Call(name, args, hashabledict(kwargs))
         return Step(self, trail, target, args, kwargs)
 
-    def record(self, target, *args, **kwargs):
-        processed_args = []
-        for arg in args:
-            if isinstance(arg, Step):
-                arg = arg.get()
+    def record(self, trail, value):
+        recorded = shelve.open(os.path.join(self.directory, 'recorded.shelve'))
+        recorded[make_path(trail)] = {'trail': trail,
+                                           'value': value}
+        return value
 
-            processed_args.append(arg)
-        result = target(*processed_args, **kwargs)
-
-        self.observed.append((target.__name__, args, kwargs, result))
-        return result
-
+    def _make_summary(self):
+        recorded = shelve.open(os.path.join(self.directory, 'recorded.shelve'))
+        r = []
+        for v in recorded.values():
+            r.append(repr(v['trail']))
+            r.append(repr(v['value']))
+            r.append('--\n')
+            
+        return '\n'.join(r)
+                
     def summary(self):
-        # We need to infer the pipeline from our graph.
-        lines = []
-        for name, args, kwargs, result in self.observed:
-            args = tuple(a if not isinstance(a, Step)
-                         else a.name for a in args)
+        return self._make_summary()
 
-            lines.append(name + str(args) + ' = ' + str(result))
+    def store(self, trail, value):
+        return joblib.dump(value, os.path.join(self.directory, make_path(trail)))
 
-        return '\n'.join(lines)
+    def load(self, trail):
+        return joblib.load(os.path.join(self.directory, make_path(trail)))
 
-    def store(self, name, value):
-        return joblib.dump(value, os.path.join(self.directory, make_path(name)))
-
-    def load(self, name):
-        return joblib.load(os.path.join(self.directory, make_path(name)))
-
-    def load_hash(self, name):
-        hash_file = os.path.join(self.directory, make_path(name) + '.hash')
+    def load_hash(self, trail):
+        hash_file = os.path.join(self.directory, make_path(trail) + '.hash')
         if not os.path.exists(hash_file):
             return None
         else:
             return open(hash_file).read()
 
-    def store_hash(self, name, hash):
-        hash_file = os.path.join(self.directory, make_path(name) + '.hash')
+    def store_hash(self, trail, hash):
+        hash_file = os.path.join(self.directory, make_path(trail) + '.hash')
         with open(hash_file, 'w') as fd:
             fd.write(hash)
 
@@ -164,8 +160,6 @@ class Step:
             if isinstance(v, Call):
                 yield self.dc.step_graph[v]
 
-        return None
-
     def has_deps(self):
         return (any(isinstance(a, Call) for a in self.trail.args)
                 or any(isinstance(v, Call) for v in self.trail.kwargs.values()))
@@ -196,8 +190,9 @@ class Step:
     def load_meta(self, meta):
         return self.dc.load_meta(self, meta)
 
-    def record(self):
-        return self.dc.record(self.target, *self.args, **self.kwargs)
+    def record(self, target, *args, **kwargs):
+        final = self.step(target, *args, **kwargs)
+        return self.dc.record(final.trail, final.get())
 
     def prepr(self):
         '''Pretty representation'''
@@ -244,3 +239,5 @@ class Step:
 
 def apply_with_kwargs(function, args, kwargs):
     return function(*args, **dict(kwargs))
+    
+    

@@ -45,17 +45,18 @@ def datacache(request):
 
 
 def test_example1(datacache):
-    # TODO: how to parametrize this kind of stuff?
     dataset = datacache.step(make_data_set).step(split).checkpoint()
-
-    lr, score = datacache.record(linear_fit, dataset)
+    dataset.record(linear_fit)
 
     dataset2 = datacache.step(make_data_set).step(
         square).step(split).checkpoint()
-    lr, score = datacache.record(linear_fit, dataset2)
+    
+    dataset2.record(linear_fit)
 
     # We need to check if hash was created
     assert os.path.exists('./dc/' + make_path(dataset.trail) + '.hash')
+    
+    print(datacache.summary())
 
 
 def test_hash_changed(datacache):
