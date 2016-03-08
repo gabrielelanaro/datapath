@@ -6,9 +6,9 @@ from sklearn.cross_validation import train_test_split
 from sklearn.linear_model import LinearRegression
 
 
-def make_data_set():
-    X = np.arange(20)[np.newaxis].T
-    y = np.arange(20)
+def make_data_set(size=20):
+    X = np.arange(size)[np.newaxis].T
+    y = np.arange(size)
     return X, y
 
 
@@ -29,6 +29,12 @@ def linear_fit(dataset, C=1.0):
     lr.fit(X_train, y_train)
 
     return lr, lr.score(X_test, y_test)
+
+def run_external(dataset):
+    with open('/tmp/hello.lock', 'w') as fd:
+        fd.write('locked')
+    return '/tmp/hello.lock'
+
 
 import py
 
@@ -58,7 +64,11 @@ def test_example1(datacache):
     
     print(datacache.summary())
 
-
+def test_dict(datacache):
+    datacache.step(make_data_set, 10).get()
+    datacache.step(make_data_set, size=10).get()
+    
+    
 def test_hash_changed(datacache):
     global make_data_set
     make_data_set_old = make_data_set
@@ -126,9 +136,30 @@ def test_unpacking(datacache):
     print(X_train.get())
 
 
-# def test_parameterized(datacache):
-#     val = datacache.step(make_data_set_p, 10).step(power, 3).record()
-#     assert np.array_equal(val, np.arange(10) ** 3)
-#
-#     val = datacache.step(make_data_set_p, 20).step(power, 3).record()
-#     assert np.array_equal(val, np.arange(10) ** 3)
+class MyMonitor:
+    
+    def is_running(self, id_):
+        return os.path.exists(id_)
+    
+    def progress(self, id_, meta):
+        return 'Task is running, started at: {}'.format(meta['start_time'])
+        
+    def summary(self, id_, meta):
+        return 'Task is done.'
+
+def test_monitor(datacache):
+    step = datacache.step(make_data_set).step(run_external)
+    report = step.monitor(MyMonitor())
+    
+    step2 = datacache.step(make_data_set).step(run_external)
+    report2 = step2.monitor(MyMonitor())
+    
+    assert report == report2
+
+    # Let's assume the lock is removed
+    os.remove('/tmp/hello.lock')
+    assert report != step.monitor(MyMonitor())
+    
+# def test_grid(datacache):
+#     datacache.step(make_data_set).step(square).step(split).step(linear_fit, C=Grid(0, 1, 0.2))
+#     

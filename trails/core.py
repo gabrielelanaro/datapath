@@ -3,12 +3,13 @@ import dask.threaded
 import dis
 import joblib
 import types
+import time
 import shelve
 
 from collections import namedtuple
 from operator import getitem
 from dask.compatibility import apply
-from .utils import hashabledict
+from .utils import hashabledict, hash_codeobj
 
 
 Call = namedtuple('Call', ['func', 'args', 'kwargs'])
@@ -21,7 +22,6 @@ def resolve_args(args):
 def resolve_kwargs(kwargs):
     return {k: v if not isinstance(v, Step) else v.trail for k, v in kwargs.items()}
 
-def fmt_call(call):
     
 class DataCache:
 
@@ -117,7 +117,7 @@ class Step:
 
     def recompute(self):
         self.dc.graph[self.trail] = (apply_with_kwargs, self.target,
-                                     list(self.args), list(self.kwargs))
+                                     list(self.args), list(sorted(self.kwargs.items())))
 
     def step(self, target, *args, **kwargs):
         name = target.__name__
@@ -151,12 +151,31 @@ class Step:
         self.dc.graph[self.trail] = (self.dc.load, self.trail + ('.store',))
         return self
 
+    # TODO: could rename this to check or watch, as we're basically watching a 
+    # side effect.
+    def monitor(self, monitor, recompute=False):
+        # The step will execute only for the first time, for the rest it's
+        # going to give us an ID.
+        
+        if self.changed() or recompute:
+            # We are about to recompute, therefore we store some metadata
+            # like initial time
+            start_time = time.time()
+            self.store_meta('start_time', start_time)
+            
+        id_ = self.checkpoint(recompute=recompute).get()
+        
+        if monitor.is_running(id_):
+            return monitor.progress(id_, {'start_time': self.load_meta('start_time')})
+        else:
+            return monitor.summary(id_, {'start_time': self.load_meta('start_time')})
+        
     def previous(self):
         for a in self.trail.args:
             if isinstance(a, Call):
                 yield self.dc.step_graph[a]
 
-        for k, v in self.trail.kwargs:
+        for k, v in sorted(self.trail.kwargs.items()):
             if isinstance(v, Call):
                 yield self.dc.step_graph[v]
 
@@ -167,21 +186,18 @@ class Step:
     def hash(self):
 
         if isinstance(self.target, types.BuiltinFunctionType):
-            bytecode = None
-            consts = None
+            function_hash = None
         else:
-            bytecode = self.target.__code__.co_code
-            consts = self.target.__code__.co_consts
+            function_hash = hash_codeobj(self.target.__code__)
 
-        uniquity = (self.trail, self.args, self.kwargs,
-                    bytecode,
-                    consts)
+
+        uniquity = (self.trail, self.args, self.kwargs, function_hash)
 
         if self.has_deps():
             previous_hash = ''.join(p.hash() for p in self.previous())
         else:
             previous_hash = ''
-
+                
         return previous_hash + joblib.hash(uniquity)
 
     def store_meta(self, meta, value):
