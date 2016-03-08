@@ -31,11 +31,6 @@ def plot_trail(trail):
             return node
 
     _make_graph(trail)
-    #
-    # positions = nx.spring_layout(graph)
-    # labels = {n: "{}".format(graph.node[n]["name"]) for n in graph.node}
-    #
-    # nx.draw_graphviz(graph, labels=labels)
     return graph
 
 
@@ -53,6 +48,6 @@ def format_args(call):
         tpl = "{}({}{})"
 
     else:
-        tpl = "<{}({}, {})>"
+        tpl = "{}({}, {})"
 
     return tpl.format(call.func, args, kwargs)
