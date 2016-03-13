@@ -1,5 +1,5 @@
 import os
-import dask.threaded
+import dask.async as dask_scheduler
 import dis
 import joblib
 import types
@@ -22,7 +22,7 @@ def resolve_args(args):
 def resolve_kwargs(kwargs):
     return {k: v if not isinstance(v, Step) else v.trail for k, v in kwargs.items()}
 
-    
+
 class DataCache:
 
     def __init__(self, directory='./dc'):
@@ -54,17 +54,17 @@ class DataCache:
             r.append(repr(v['trail']))
             r.append(repr(v['value']))
             r.append('--\n')
-            
+
         return '\n'.join(r)
-                
+
     def summary(self):
         return self._make_summary()
 
-    def store(self, trail, value):
-        return joblib.dump(value, os.path.join(self.directory, make_path(trail)))
+    def store(self, trail, value, store_func=joblib.dump):
+        return store_func(value, os.path.join(self.directory, make_path(trail)))
 
-    def load(self, trail):
-        return joblib.load(os.path.join(self.directory, make_path(trail)))
+    def load(self, trail, load_func=joblib.load):
+        return load_func(os.path.join(self.directory, make_path(trail)))
 
     def load_hash(self, trail):
         hash_file = os.path.join(self.directory, make_path(trail) + '.hash')
@@ -131,45 +131,45 @@ class Step:
         return Step(self.dc, trail, target, args, kwargs)
 
     def get(self):
-        result = dask.threaded.get(self.dc.graph, self.trail)
+        result = dask_scheduler.get_sync(self.dc.graph, self.trail)
         return result
 
     def changed(self):
         return self.hash() != self.dc.load_hash(self.trail)
 
-    def checkpoint(self, recompute=False):
+    def checkpoint(self, recompute=False, store_func=joblib.dump, load_func=joblib.load):
         hash_ = self.hash()
 
         if hash_ != self.dc.load_hash(self.trail) or recompute:
             # If hash has changed, we write stuff to disk
             self.recompute()
             result = self.get()
-            self.dc.store(self.trail + ('.store',), result)
+            self.dc.store(self.trail + ('.store',), result, store_func)
             self.dc.store_hash(self.trail, hash_)
 
         # We replace the calculation with the cached value
-        self.dc.graph[self.trail] = (self.dc.load, self.trail + ('.store',))
+        self.dc.graph[self.trail] = (self.dc.load, self.trail + ('.store',), load_func)
         return self
 
-    # TODO: could rename this to check or watch, as we're basically watching a 
+    # TODO: could rename this to check or watch, as we're basically watching a
     # side effect.
     def monitor(self, monitor, recompute=False):
         # The step will execute only for the first time, for the rest it's
         # going to give us an ID.
-        
+
         if self.changed() or recompute:
             # We are about to recompute, therefore we store some metadata
             # like initial time
             start_time = time.time()
             self.store_meta('start_time', start_time)
-            
+
         id_ = self.checkpoint(recompute=recompute).get()
-        
+
         if monitor.is_running(id_):
             return monitor.progress(id_, {'start_time': self.load_meta('start_time')})
         else:
             return monitor.summary(id_, {'start_time': self.load_meta('start_time')})
-        
+
     def previous(self):
         for a in self.trail.args:
             if isinstance(a, Call):
@@ -197,7 +197,7 @@ class Step:
             previous_hash = ''.join(p.hash() for p in self.previous())
         else:
             previous_hash = ''
-                
+
         return previous_hash + joblib.hash(uniquity)
 
     def store_meta(self, meta, value):
@@ -255,5 +255,3 @@ class Step:
 
 def apply_with_kwargs(function, args, kwargs):
     return function(*args, **dict(kwargs))
-    
-    

@@ -14,6 +14,7 @@ setup(
     author = "Gabriele Lanaro",
     author_email = "gabriele.lanaro@gmail.com",
     description = ("Design and structure data pipelines"),
+    install_requires=['dask','joblib'],
     license = "MIT",
     keywords = "data pipelines",
     url = "https://github.com/gabrielelanaro/trails",
